@@ -1,0 +1,65 @@
+name: Build APK
+
+# Builds a debug APK on every push to the default branch, on every PR,
+# and on manual trigger. Download the APK from the run page's "Artifacts"
+# section once the workflow finishes (takes ~3–5 minutes on the first run,
+# faster after the cache warms up).
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      # We don't commit gradle-wrapper.jar (it's a binary blob). Generate it
+      # at build time using the host Gradle, then use the wrapper for the
+      # actual build so we pin the version explicitly.
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.6
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Show APK metadata
+        run: |
+          set -e
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          ls -lh "$APK"
+          echo "---"
+          # Print package name and version from the manifest for sanity.
+          $ANDROID_SDK_ROOT/build-tools/34.0.0/aapt dump badging "$APK" \
+            | grep -E "^(package|application-label|sdkVersion|targetSdkVersion):"
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlassCalculator-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
